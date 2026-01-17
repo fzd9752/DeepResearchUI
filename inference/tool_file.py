@@ -10,7 +10,18 @@ import base64
 import urllib
 import requests
 import zipfile
+import glob
 from typing import Optional
+from base_tool import BaseTool, register_tool
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
+try:
+    import pytesseract
+except Exception:
+    pytesseract = None
 
 
 class FileParser:
@@ -449,3 +460,101 @@ class FileParser:
         except Exception as e:
             print(f"[file_to_base64] Base64 encoding failed: {e}")
             return ""
+
+
+@register_tool("parse_file", allow_overwrite=True)
+class ParseFile(BaseTool):
+    name = "parse_file"
+    description = (
+        "Parse user uploaded local files by file_id or filename. "
+        "Supports csv/txt/zip and basic image inspection."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "files": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of file ids or filenames returned by the upload API.",
+            }
+        },
+        "required": ["files"],
+    }
+
+    def __init__(self, cfg: Optional[dict] = None):
+        super().__init__(cfg)
+
+    def _resolve_path(self, file_token: str) -> Optional[str]:
+        if not file_token:
+            return None
+        if os.path.exists(file_token):
+            return os.path.abspath(file_token)
+        upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
+        pattern = os.path.join(upload_dir, f"{file_token}_*")
+        matches = glob.glob(pattern)
+        if matches:
+            return os.path.abspath(matches[0])
+        fallback = os.path.join(upload_dir, file_token)
+        if os.path.exists(fallback):
+            return os.path.abspath(fallback)
+        return None
+
+    def _describe_image(self, file_path: str) -> str:
+        if Image is None:
+            return "Pillow is not available to inspect the image."
+        try:
+            with Image.open(file_path) as img:
+                lines = [
+                    f"### Image File: {os.path.basename(file_path)}",
+                    f"- Format: {img.format}",
+                    f"- Size: {img.width} x {img.height}",
+                    f"- Mode: {img.mode}",
+                ]
+                if pytesseract is not None:
+                    try:
+                        lang = os.getenv("TESSERACT_LANG", "chi_sim+eng")
+                        ocr_text = pytesseract.image_to_string(img, lang=lang)
+                        ocr_text = ocr_text.strip()
+                        if ocr_text:
+                            lines.append("\n### OCR Text")
+                            lines.append(ocr_text[:2000])
+                        else:
+                            lines.append("\n### OCR Text\n(no text detected)")
+                    except Exception as exc:
+                        lines.append(f"\n### OCR Text\n(OCR failed: {exc})")
+                else:
+                    lines.append("\n### OCR Text\n(pytesseract not installed)")
+                return "\n".join(lines)
+        except Exception as exc:
+            return f"Failed to read image: {exc}"
+
+    def call(self, params, **kwargs) -> str:
+        try:
+            files = params.get("files", [])
+        except Exception:
+            return "[parse_file] Invalid request format: must include 'files'"
+
+        if isinstance(files, str):
+            files = [files]
+        if not isinstance(files, list):
+            return "[parse_file] Invalid request format: 'files' must be a list"
+
+        outputs = []
+        for file_token in files:
+            path = self._resolve_path(str(file_token))
+            if not path:
+                outputs.append(f"[parse_file] File not found: {file_token}")
+                continue
+            ext = os.path.splitext(path)[1].lower()
+            if ext in (".csv",):
+                outputs.append(FileParser.parse_csv(path))
+            elif ext in (".txt",):
+                outputs.append(FileParser.parse_txt(path))
+            elif ext in (".zip",):
+                outputs.append(FileParser.parse_zip(path))
+            elif ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"):
+                outputs.append(self._describe_image(path))
+            else:
+                outputs.append(f"[parse_file] Unsupported file type: {ext} ({path})")
+
+        return "\n\n".join(outputs)

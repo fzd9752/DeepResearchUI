@@ -21,9 +21,6 @@ const initialState = {
   memoryUnits: [],
   tokenUsage: { current: 0, max: 110000, saved: 0 },
   
-  // Sources (New)
-  sources: [],
-  
   // Supervisor
   supervisorLogs: [],
   
@@ -140,16 +137,6 @@ export const useResearchStore = create((set, get) => ({
     });
   },
   
-  addSource: (source) => {
-    set((state) => {
-      // Avoid duplicates based on URL
-      if (state.sources.some(s => s.url === source.url)) {
-        return state;
-      }
-      return { sources: [...state.sources, source] };
-    });
-  },
-
   addSupervisorLog: (log) => {
     set((state) => ({
       supervisorLogs: [log, ...state.supervisorLogs].slice(0, 50),

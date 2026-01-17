@@ -103,3 +103,10 @@ export async function uploadFile(file) {
 export async function getConfig() {
   return request('/api/config');
 }
+
+export async function updateConfig(data) {
+  return request('/api/config', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}

@@ -13,7 +13,6 @@ export function useSSE(taskId) {
     addMemoryUnit,
     updateTokenUsage,
     addSupervisorLog,
-    addSource,
     setResult,
     setError,
   } = useResearchStore();
@@ -95,14 +94,6 @@ export function useSSE(taskId) {
         tool: data.tool,
         toolArgs: data.arguments,
       });
-      
-      // Capture visit URLs
-      if (data.tool === 'visit' && data.arguments?.url) {
-        addSource({ title: 'Visited Page', url: data.arguments.url });
-      }
-      if (data.tool === 'visit' && Array.isArray(data.arguments?.urls)) {
-        data.arguments.urls.forEach(url => addSource({ title: 'Visited Page', url }));
-      }
     });
     
     eventSource.addEventListener('round_observing', (e) => {
@@ -112,16 +103,6 @@ export function useSSE(taskId) {
         resultSummary: data.result_summary,
         resultPreview: data.result_preview,
       });
-      
-      // Parse search results for sources
-      // Search output format: "1. [Title](url)..."
-      if (data.resultPreview) {
-        const linkRegex = /\[(.*?)\]\((https?:\/\/[^\s\)]+)\)/g;
-        let match;
-        while ((match = linkRegex.exec(data.resultPreview)) !== null) {
-          addSource({ title: match[1], url: match[2] });
-        }
-      }
     });
     
     eventSource.addEventListener('round_complete', (e) => {

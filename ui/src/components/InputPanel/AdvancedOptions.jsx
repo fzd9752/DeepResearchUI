@@ -1,4 +1,6 @@
+import { useRef, useState } from 'react';
 import { useResearchStore } from '../../stores/researchStore';
+import { updateConfig } from '../../utils/api';
 
 const containerStyle = {
   border: '1px dashed var(--border-default)',
@@ -43,11 +45,50 @@ const checkboxLabelStyle = {
   fontSize: 'var(--font-size-sm)',
 };
 
+const statusStyle = {
+  fontSize: '12px',
+  color: 'var(--text-muted)',
+  gridColumn: '1 / -1',
+};
+
 export default function AdvancedOptions({ options, onChange, disabled }) {
   const { availableModels } = useResearchStore();
+  const [saveStatus, setSaveStatus] = useState(null);
+  const saveTokenRef = useRef(0);
   
   const handleChange = (key, value) => {
+    const nextOptions = { ...options, [key]: value };
     onChange({ [key]: value });
+    if (key === 'model' || key === 'memoryModel' || key === 'summaryModel') {
+      const token = ++saveTokenRef.current;
+      setSaveStatus('saving');
+      updateConfig({
+        default_model: nextOptions.model,
+        memory_model: nextOptions.memoryModel,
+        summary_model: nextOptions.summaryModel,
+      })
+        .then(() => {
+          if (saveTokenRef.current === token) {
+            setSaveStatus('saved');
+            setTimeout(() => {
+              if (saveTokenRef.current === token) {
+                setSaveStatus(null);
+              }
+            }, 2000);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to update config:', error);
+          if (saveTokenRef.current === token) {
+            setSaveStatus('failed');
+            setTimeout(() => {
+              if (saveTokenRef.current === token) {
+                setSaveStatus(null);
+              }
+            }, 4000);
+          }
+        });
+    }
   };
 
   return (
@@ -145,6 +186,14 @@ export default function AdvancedOptions({ options, onChange, disabled }) {
           启用浏览器 Agent
         </label>
       </div>
+
+      {saveStatus && (
+        <div style={statusStyle}>
+          {saveStatus === 'saving' && '模型配置保存中...'}
+          {saveStatus === 'saved' && '模型配置已保存到 .env'}
+          {saveStatus === 'failed' && '模型配置保存失败，请检查后端权限或网络'}
+        </div>
+      )}
     </div>
   );
 }

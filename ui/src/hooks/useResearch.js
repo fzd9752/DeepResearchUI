@@ -17,7 +17,7 @@ export function useResearch() {
   
   useSSE(taskId);
   
-  const start = useCallback(async (userInput, scenarioId = null) => {
+  const start = useCallback(async (userInput, scenarioId = null, files = []) => {
     try {
       // Logic to wrap the prompt on the frontend so it's visible in the UI
       let fullQuestion = userInput;
@@ -38,6 +38,7 @@ export function useResearch() {
       const response = await createResearch({
         question: fullQuestion,
         scenario_id: null, // intentionally null
+        files: files && files.length ? files : undefined,
         options,
       });
       

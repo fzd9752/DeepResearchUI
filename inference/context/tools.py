@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import traceback
+import re
 from openai import OpenAI
 from typing import List, Optional
 from context.prompt import CONTEXT_SYSTEM_PROMPT, CONTEXT_PROMPT
@@ -132,8 +133,20 @@ class ContextManageTool(object):
                     max_tokens=8192,
                     response_format={"type": "json_object"},
                 )
-                merge = int(json.loads(response)["merge"])
-                memory = json.loads(response)["memory"]
+                response = (response or "").strip()
+                if not response:
+                    raise ValueError("Empty memory response")
+                try:
+                    payload = json.loads(response)
+                except Exception:
+                    match = re.search(r"\{.*\}", response, re.DOTALL)
+                    if not match:
+                        raise
+                    payload = json.loads(match.group(0))
+                if "merge" not in payload or "memory" not in payload:
+                    raise ValueError("Missing merge/memory in response")
+                merge = int(payload["merge"])
+                memory = payload["memory"]
                 return merge, memory
             except Exception as e:  # pylint: disable=broad-except
                 if i + 1 >= retry_num:

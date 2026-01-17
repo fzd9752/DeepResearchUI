@@ -8,7 +8,7 @@ import ProgressBar from './components/ProgressBar/ProgressBar';
 import FlowGraph from './components/FlowGraph/FlowGraph';
 import RoundDetails from './components/RoundDetails/RoundDetails';
 import MemoryPanel from './components/MemoryPanel/MemoryPanel';
-import SourcePanel from './components/SourcePanel/SourcePanel';
+import SupervisorLog from './components/SupervisorLog/SupervisorLog';
 import ReportPanel from './components/ReportPanel/ReportPanel';
 import StatusBar from './components/StatusBar/StatusBar';
 import styles from './App.module.css';
@@ -44,8 +44,8 @@ function App() {
     fetchConfig();
   }, [updateOptions, setAvailableModels]);
 
-  const handleStart = (question, scenarioId) => {
-    start(question, scenarioId);
+  const handleStart = (question, scenarioId, files) => {
+    start(question, scenarioId, files);
   };
 
   return (
@@ -63,7 +63,7 @@ function App() {
         
         <div className={styles.grid2}>
           <MemoryPanel />
-          <SourcePanel />
+          <SupervisorLog />
         </div>
         
         <ReportPanel />

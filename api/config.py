@@ -30,7 +30,17 @@ class APISettings:
     upload_dir: str = os.getenv("UPLOAD_DIR", "./uploads")
     max_upload_size: int = int(os.getenv("MAX_UPLOAD_SIZE", "52428800"))
     allowed_upload_extensions: Set[str] = field(
-        default_factory=lambda: {".csv", ".pdf", ".txt", ".zip", ".xlsx"}
+        default_factory=lambda: {
+            ".csv",
+            ".txt",
+            ".zip",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".gif",
+            ".bmp",
+        }
     )
 
     model_path: str = os.getenv("MODEL_PATH", "")
@@ -40,6 +50,13 @@ class APISettings:
         )
     )
     default_model: str = os.getenv("DEFAULT_MODEL", os.getenv("LLM_MODEL", "gemini-3-pro"))
+    default_memory_model: str = os.getenv(
+        "MEMORY_MODEL", os.getenv("DEFAULT_MODEL", os.getenv("LLM_MODEL", "gemini-3-pro"))
+    )
+    default_summary_model: str = os.getenv(
+        "SUMMARY_MODEL_NAME",
+        os.getenv("DEFAULT_MODEL", os.getenv("LLM_MODEL", "gemini-3-pro")),
+    )
     max_rollouts: int = int(os.getenv("MAX_ROLLOUTS", "5"))
     default_rollouts: int = int(os.getenv("ROLLOUT_COUNT", "3"))
     temperature: float = float(os.getenv("TEMPERATURE", "0.6"))
@@ -77,3 +94,10 @@ def get_settings() -> APISettings:
 
 
 settings = get_settings()
+
+
+def reload_settings() -> APISettings:
+    get_settings.cache_clear()
+    global settings
+    settings = get_settings()
+    return settings

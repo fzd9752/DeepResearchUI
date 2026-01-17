@@ -28,6 +28,7 @@ from context.tools import create_context_manage_tool
 from tool_search import *
 from tool_visit import *
 from tool_code import *
+from tool_file import ParseFile
 
 # ========== 全局配置 ==========
 # 这里集中读取所有依赖的环境变量，方便统一管理和排查。
@@ -44,6 +45,7 @@ TOOL_CLASS = [
     Visit(),
     Search(),
     CodeExecutor(),
+    ParseFile(),
 ]
 TOOL_MAP = {tool.name: tool for tool in TOOL_CLASS}
 
@@ -642,18 +644,15 @@ class Agent:
                 print(f"\nTool Response:\n{result}\n")
 
                 if not error:
-                    preview = raw_result.strip().replace("\n", " ")
-                    if len(preview) > 200:
-                        preview = preview[:200] + "..."
+                    preview = raw_result.strip()
                     observing_payload = {
                         "rollout_id": self.current_rollout_idx,
                         "round": round,
                         "tool": tool_name,
                         "result_summary": f"Tool returned {len(raw_result)} chars",
                         "result_preview": preview,
+                        "result_full": raw_result,
                     }
-                    if self.emit_full_tool_response:
-                        observing_payload["result_full"] = raw_result
                     self.emit_event("round_observing", observing_payload)
                     self.emit_event(
                         "round_complete",

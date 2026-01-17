@@ -40,6 +40,125 @@
   color: var(--text-muted);
 }
 
+.attachments {
+  border: 1px dashed var(--border-default);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  background: var(--bg-tertiary);
+}
+
+.attachHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.attachActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.attachBtn {
+  background: none;
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.attachBtn:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  border-color: var(--border-default);
+}
+
+.attachList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.attachItem {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+  background: #0f172a;
+  border: 1px solid var(--border-default);
+}
+
+.attachThumb {
+  width: 56px;
+  height: 56px;
+  border: 1px solid #1f2937;
+  background: #0b1020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.attachThumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: cover;
+}
+
+.fileBadge {
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid #1f2937;
+  padding: 2px 6px;
+  letter-spacing: 0.5px;
+}
+
+.attachMeta {
+  flex: 1;
+  min-width: 0;
+}
+
+.attachName {
+  color: var(--text-primary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachStatus {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--accent-red);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.removeBtn:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+
+.attachEmpty {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 6px 0;
+}
+
+.attachHint {
+  color: var(--accent-cyan);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
 .scenariosSection {
   margin-bottom: var(--spacing-lg);
 }

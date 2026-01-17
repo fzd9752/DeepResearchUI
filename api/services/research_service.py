@@ -59,6 +59,7 @@ class ResearchService:
             {
                 "task_id": task.id,
                 "question": request.question,
+                "files": request.files or [],
                 "rollout_count": rollout_count,
                 "started_at": task.created_at.isoformat(),
             },
@@ -382,18 +383,15 @@ class ResearchService:
                 )
 
                 response = tool_responses[idx] if idx < len(tool_responses) else ""
-                preview = response.replace("\n", " ")
-                if len(preview) > 240:
-                    preview = preview[:240] + "..."
+                preview = response
                 observing_payload = {
                     "rollout_id": rollout_state.id,
                     "round": round_id,
                     "tool": tool_name,
                     "result_summary": f"Tool returned {len(response)} chars",
                     "result_preview": preview,
+                    "result_full": response,
                 }
-                if self.settings.full_tool_response and response:
-                    observing_payload["result_full"] = response
                 self._handle_agent_event(
                     task.id,
                     rollout_state.id,
@@ -541,7 +539,13 @@ class ResearchService:
 
         agent = Agent(
             llm=llm_cfg,
-            function_list=["search", "visit", "google_scholar", "CodeExecutor"],
+            function_list=[
+                "search",
+                "visit",
+                "google_scholar",
+                "CodeExecutor",
+                "parse_file",
+            ],
             event_callback=lambda event_type, data: self._handle_agent_event(
                 task.id, rollout_id, event_type, data
             ),
@@ -552,10 +556,17 @@ class ResearchService:
             emit_full_tool_response=self.settings.full_tool_response,
         )
 
+        question = task.request.question
+        files = task.request.files or []
+        if files:
+            joined = "\n".join([f"- {item}" for item in files])
+            question = f"{question}\n\n[Uploaded Files]\n{joined}"
+
         data = {
             "item": {
-                "question": task.request.question,
+                "question": question,
                 "answer": "",
+                "files": files,
             },
             "rollout_idx": rollout_id,
         }
