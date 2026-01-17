@@ -1,0 +1,42 @@
+[
+  {
+    "id": "fact-check",
+    "name": "Fact Check",
+    "icon": "search",
+    "description": "Verify claims by cross-checking multiple sources.",
+    "prompt_template": "Please verify the following information and trace sources:\n\n{user_input}\n\nRequirements: ...",
+    "suggested_tools": ["search", "visit", "google_scholar"]
+  },
+  {
+    "id": "competitor-analysis",
+    "name": "Competitor Analysis",
+    "icon": "chart",
+    "description": "Compare competing products and generate an analysis report.",
+    "prompt_template": "...",
+    "suggested_tools": ["search", "visit"]
+  },
+  {
+    "id": "literature-review",
+    "name": "Literature Review",
+    "icon": "book",
+    "description": "Search academic papers and generate a literature review.",
+    "prompt_template": "...",
+    "suggested_tools": ["google_scholar", "visit", "search"]
+  },
+  {
+    "id": "due-diligence",
+    "name": "Due Diligence",
+    "icon": "finance",
+    "description": "Pre-investment due diligence and risk assessment.",
+    "prompt_template": "...",
+    "suggested_tools": ["search", "visit"]
+  },
+  {
+    "id": "compliance-review",
+    "name": "Compliance Review",
+    "icon": "compliance",
+    "description": "Regulatory research with compliance recommendations.",
+    "prompt_template": "...",
+    "suggested_tools": ["search", "visit", "google_scholar"]
+  }
+]

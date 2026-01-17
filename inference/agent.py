@@ -1,6 +1,7 @@
 import json
 import json5
 import os
+import re
 from pathlib import Path
 import traceback
 import time
@@ -12,6 +13,7 @@ from base_tool import (
 )
 from openai import OpenAI
 from transformers import AutoTokenizer
+import datetime as dt
 from datetime import datetime
 
 try:
@@ -46,12 +48,11 @@ TOOL_CLASS = [
 TOOL_MAP = {tool.name: tool for tool in TOOL_CLASS}
 
 import random
-import datetime
 
 
 def today_date():
     """返回当前日期（YYYY-MM-DD），让系统提示词具备当天语境。"""
-    return datetime.date.today().strftime("%Y-%m-%d")
+    return dt.date.today().strftime("%Y-%m-%d")
 
 
 class Agent:
@@ -69,6 +70,11 @@ class Agent:
         self,
         function_list: Optional[List[Union[str, Dict, BaseTool]]] = None,
         llm: Optional[Union[Dict]] = None,
+        event_callback=None,
+        cancel_checker=None,
+        enable_context_management: Optional[bool] = None,
+        enable_supervisor: Optional[bool] = None,
+        model_name: Optional[str] = None,
         **kwargs,
     ):
         self.function_list = function_list or []
@@ -78,7 +84,20 @@ class Agent:
         self.llm_local_path = llm["model"]
         self.browser_traces: List[dict] = []
         self.current_rollout_idx: Optional[int] = None
-        self.supervisor = Supervisor(llm_caller=None)
+        self.event_callback = event_callback
+        self.cancel_checker = cancel_checker
+        self.enable_context_management = (
+            ENABLE_CONTEXT_MANAGEMENT
+            if enable_context_management is None
+            else enable_context_management
+        )
+        self.emit_full_tool_response = bool(kwargs.get("emit_full_tool_response", False))
+        self.model_name = model_name
+        self.supervisor = Supervisor(
+            enable_reflection=enable_supervisor,
+            llm_caller=None,
+            event_callback=self.event_callback,
+        )
         self._tokenizer = None
         self.context_mgr = create_context_manage_tool()
         self.supervisor.llm_caller = self.call_server
@@ -87,10 +106,14 @@ class Agent:
         """快速检查输出是否包含 <think> 标签，用于最基本的格式校验。"""
         return "<think>" in content and "</think>" in content
 
+    def emit_event(self, event_type: str, data: dict) -> None:
+        if self.event_callback:
+            self.event_callback(event_type, data)
+
     def call_server(self, msgs, max_tries=10):
         """对 OpenAI 兼容 API 接口发起请求，并带指数退避重试。"""
 
-        openai_api_key = AGENT_API_KEY
+        openai_api_key = AGENT_API_KEY or os.getenv("OPENAI_API_KEY", "")
         openai_api_base = AGENT_API_BASE
 
         # Use OpenAI client
@@ -198,8 +221,24 @@ class Agent:
 
     def count_tokens(self, messages):
         """计算当前上下文 token 数，防止超过 LLM 上限。"""
+        if not self.llm_local_path:
+            if self._tokenizer is None:
+                print("[count_tokens] MODEL_PATH is empty; skip token counting.")
+                self._tokenizer = False
+            return 0
+
         if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.llm_local_path)
+            try:
+                self._tokenizer = AutoTokenizer.from_pretrained(self.llm_local_path)
+            except Exception as exc:
+                print(
+                    f"[count_tokens] Failed to load tokenizer from {self.llm_local_path}: {exc}"
+                )
+                self._tokenizer = False
+                return 0
+
+        if self._tokenizer is False:
+            return 0
 
         full_prompt = self._tokenizer.apply_chat_template(messages, tokenize=False)
         tokens = self._tokenizer(full_prompt, return_tensors="pt")
@@ -225,7 +264,7 @@ class Agent:
             "traces": traces,
             "prediction": prediction,
             "termination": termination,
-            "use_context_management": ENABLE_CONTEXT_MANAGEMENT,
+            "use_context_management": self.enable_context_management,
             "is_used_memory": is_used_memory,
         }
 
@@ -239,7 +278,10 @@ class Agent:
 
     def _parse_tool_call(self, content: str, messages: List[Dict] = None) -> tuple:
         """解析工具调用，返回 (is_python, tool_name, tool_args_or_code, error)。"""
-        tool_call_str = content.split("<tool_call>")[1].split("</tool_call>")[0]
+        match = re.search(r"<tool_call>(.*?)</tool_call>", content, re.DOTALL)
+        if not match:
+            return False, None, None, "Tool call parsing error: missing <tool_call> block"
+        tool_call_str = match.group(1).strip()
 
         # 检查是否是 Python 代码执行
         if (
@@ -268,9 +310,38 @@ class Agent:
                         return self._parse_tool_call(new_content, messages=None)
                 return True, None, None, error
 
+        if tool_call_str.lower().startswith("<code>"):
+            try:
+                code = (
+                    tool_call_str.split("<code>")[1]
+                    .split("</code>")[0]
+                    .strip()
+                )
+                return True, "CodeExecutor", code, None
+            except Exception as e:
+                return True, None, None, f"[Code Executor Error]: Formatting error. {e}"
+
+        # 优先解析 <name>/<arguments> 标签格式，避免不必要的纠错调用
+        if "<name>" in tool_call_str and "</name>" in tool_call_str:
+            name_match = re.search(r"<name>(.*?)</name>", tool_call_str, re.DOTALL)
+            args_match = re.search(
+                r"<arguments>(.*?)</arguments>", tool_call_str, re.DOTALL
+            )
+            if name_match:
+                tool_name = name_match.group(1).strip()
+                args_text = args_match.group(1).strip() if args_match else ""
+                tool_args = self._parse_arguments_block(args_text)
+                return False, tool_name, tool_args, None
+        elif tool_call_str.lstrip().startswith("<"):
+            # 明显是 XML 风格但未包含 <name>，避免触发纠错调用
+            return False, None, None, "Tool call parsing error: unsupported tag format"
+
         # 解析 JSON 格式的工具调用
         try:
-            tool_call = json5.loads(tool_call_str)
+            json_block = tool_call_str
+            if "<code>" in tool_call_str.lower():
+                json_block = tool_call_str.split("<code>", 1)[0].strip()
+            tool_call = json5.loads(json_block)
             tool_name = tool_call.get("name", "")
             tool_args = tool_call.get("arguments", {})
             return False, tool_name, tool_args, None
@@ -285,7 +356,45 @@ class Agent:
                     print(f"[Agent] Retrying with corrected response")
                     # 递归调用，用新响应重新解析（不再传递 messages 避免无限递归）
                     return self._parse_tool_call(new_content, messages=None)
+            # 回退：解析 <name>/<arguments> 标签格式
+            name_match = re.search(r"<name>(.*?)</name>", tool_call_str, re.DOTALL)
+            args_match = re.search(
+                r"<arguments>(.*?)</arguments>", tool_call_str, re.DOTALL
+            )
+            if name_match:
+                tool_name = name_match.group(1).strip()
+                args_text = args_match.group(1).strip() if args_match else ""
+                tool_args = self._parse_arguments_block(args_text)
+                return False, tool_name, tool_args, None
             return False, None, None, error
+
+    def _parse_arguments_block(self, args_text: str) -> dict:
+        if not args_text:
+            return {}
+        try:
+            return json5.loads(args_text)
+        except Exception:
+            pass
+        args = {}
+        for tag, value in re.findall(r"<(\w+)>(.*?)</\1>", args_text, re.DOTALL):
+            cleaned = value.strip()
+            if not cleaned:
+                continue
+            parsed = cleaned
+            try:
+                parsed = json5.loads(cleaned)
+            except Exception:
+                parsed = cleaned
+            args[tag] = parsed
+        return args if args else {"raw": args_text}
+
+    def _extract_tag_content(self, content: str, tag: str) -> Optional[str]:
+        """Extract content between tags like <tag>...</tag>."""
+        open_tag = f"<{tag}>"
+        close_tag = f"</{tag}>"
+        if open_tag not in content or close_tag not in content:
+            return None
+        return content.split(open_tag)[1].split(close_tag)[0].strip()
 
     def _handle_memory_update(
         self,
@@ -303,6 +412,21 @@ class Agent:
                 )
                 print(f"[Memory] Memory Time Cost: {time.time() - mem_start_time} s.")
                 print(f"[Memory] The Latest Memory Unit: {latest_memory_unit}")
+                memory_payload = None
+                try:
+                    memory_payload = json.loads(latest_memory_unit)
+                except Exception:
+                    memory_payload = None
+                if memory_payload:
+                    self.emit_event(
+                        "memory_update",
+                        {
+                            "rollout_id": self.current_rollout_idx,
+                            "round": round_index,
+                            "action": "update",
+                            "memory_unit": memory_payload,
+                        },
+                    )
                 return latest_memory_unit
             except Exception as e:
                 if i < self.MEMORY_RETRY_NUM - 1:
@@ -326,11 +450,11 @@ class Agent:
     async def _run(self, data: str, model: str, **kwargs) -> List[List[Message]]:
         """Agent 主循环：驱动推理、解析工具调用并组装最终结果。"""
         print(f"\nData: {data}\n")
-        print(f"Context Mangagement:{ENABLE_CONTEXT_MANAGEMENT}")
+        print(f"Context Mangagement:{self.enable_context_management}")
 
         # ========== Agent Model ==========
         # 使用全局配置的模型名称
-        self.model = LLM_MODEL
+        self.model = self.model_name or LLM_MODEL
         self.browser_traces = []
         self.current_rollout_idx = data.get("rollout_idx")
 
@@ -355,6 +479,16 @@ class Agent:
         is_used_memory = False
 
         while num_llm_calls_available > 0:
+            if self.cancel_checker and self.cancel_checker():
+                return self._build_result(
+                    question,
+                    answer,
+                    messages,
+                    traces,
+                    "Task cancelled",
+                    "cancelled",
+                    is_used_memory,
+                )
             result = None
             latest_memory_unit = None
             # 超时保护
@@ -409,12 +543,31 @@ class Agent:
                 )
 
             round += 1
+            self.emit_event(
+                "round_start",
+                {
+                    "rollout_id": self.current_rollout_idx,
+                    "round": round,
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                },
+            )
             num_llm_calls_available -= 1
             content = self.call_server(messages, max_tries=5)
             print(f"\n {'=' * 30} Round {round}: {'=' * 30} \n{content}")
             if "<tool_response>" in content:
                 pos = content.find("<tool_response>")
                 content = content[:pos]
+
+            thinking_content = self._extract_tag_content(content, "think")
+            if thinking_content:
+                self.emit_event(
+                    "round_thinking",
+                    {
+                        "rollout_id": self.current_rollout_idx,
+                        "round": round,
+                        "content": thinking_content,
+                    },
+                )
 
             # 检查模型输出是否包含完整的工具调用或最终答案
             has_complete_tool_call = (
@@ -440,6 +593,7 @@ class Agent:
 
             # ========== Tool ==========
             if "<tool_call>" in content and "</tool_call>" in content:
+                tool_start_time = time.time()
                 is_python, tool_name, tool_data, error = self._parse_tool_call(
                     content, messages
                 )
@@ -447,25 +601,118 @@ class Agent:
                 if error:
                     result = error
                     print(f"[Tool call] {error}")
+                    self.emit_event(
+                        "round_complete",
+                        {
+                            "rollout_id": self.current_rollout_idx,
+                            "round": round,
+                            "status": "failed",
+                            "error": error,
+                            "duration_ms": int((time.time() - tool_start_time) * 1000),
+                        },
+                    )
                 elif is_python:
+                    self.emit_event(
+                        "round_acting",
+                        {
+                            "rollout_id": self.current_rollout_idx,
+                            "round": round,
+                            "tool": tool_name,
+                            "arguments": {},
+                            "code": tool_data,
+                        },
+                    )
                     result = TOOL_MAP["CodeExecutor"].call(tool_data)
                 else:
+                    self.emit_event(
+                        "round_acting",
+                        {
+                            "rollout_id": self.current_rollout_idx,
+                            "round": round,
+                            "tool": tool_name,
+                            "arguments": tool_data,
+                        },
+                    )
                     if tool_name == "visit":
                         tool_data["question"] = question
                     result = self.custom_call_tool(tool_name, tool_data)
 
+                raw_result = result
                 result = "<tool_response>\n" + result + "\n</tool_response>"
                 print(f"\nTool Response:\n{result}\n")
 
+                if not error:
+                    preview = raw_result.strip().replace("\n", " ")
+                    if len(preview) > 200:
+                        preview = preview[:200] + "..."
+                    observing_payload = {
+                        "rollout_id": self.current_rollout_idx,
+                        "round": round,
+                        "tool": tool_name,
+                        "result_summary": f"Tool returned {len(raw_result)} chars",
+                        "result_preview": preview,
+                    }
+                    if self.emit_full_tool_response:
+                        observing_payload["result_full"] = raw_result
+                    self.emit_event("round_observing", observing_payload)
+                    self.emit_event(
+                        "round_complete",
+                        {
+                            "rollout_id": self.current_rollout_idx,
+                            "round": round,
+                            "status": "success",
+                            "tool": tool_name,
+                            "duration_ms": int(
+                                (time.time() - tool_start_time) * 1000
+                            ),
+                        },
+                    )
+
                 # ========== Memory List Update ==========
                 latest_memory_unit = None
-                if ENABLE_CONTEXT_MANAGEMENT:
+                if self.enable_context_management:
                     latest_memory_unit = self._handle_memory_update(
                         question, round, result, content
                     )
                     latest_memory_unit = (
                         json.loads(latest_memory_unit) if latest_memory_unit else None
                     )
+
+            llm_calls_used = MAX_LLM_CALL_PER_RUN - num_llm_calls_available
+            overall_progress = (
+                llm_calls_used / MAX_LLM_CALL_PER_RUN if MAX_LLM_CALL_PER_RUN else 0
+            )
+            progress_value = float(f"{overall_progress:.4f}")
+            elapsed_seconds = time.time() - start_time
+            estimated_remaining_seconds = None
+            if overall_progress > 0:
+                estimated_remaining_seconds = (
+                    elapsed_seconds * (1 - overall_progress) / overall_progress
+                )
+
+            self.emit_event(
+                "progress_update",
+                {
+                    "overall_progress": progress_value,
+                    "elapsed_seconds": int(elapsed_seconds),
+                    "estimated_remaining_seconds": (
+                        int(estimated_remaining_seconds)
+                        if estimated_remaining_seconds is not None
+                        else None
+                    ),
+                    "llm_calls": {
+                        "current": llm_calls_used,
+                        "max": MAX_LLM_CALL_PER_RUN,
+                    },
+                    "rollouts_status": [
+                        {
+                            "id": self.current_rollout_idx,
+                            "progress": progress_value,
+                            "rounds": round,
+                        }
+                    ],
+                },
+            )
 
             # ========== Answer ==========
             if "<answer>" in content and "</answer>" in content:

@@ -12,8 +12,8 @@ from typing import List, Union
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import tiktoken
-from file_tools.file_parser import SingleFileParser
-from file_tools.utils import get_basename_from_url
+# from file_tools.file_parser import SingleFileParser
+# from file_tools.utils import get_basename_from_url
 from tool_file import FileParser
 from openai import OpenAI
 from prompt import EXTRACTOR_PROMPT

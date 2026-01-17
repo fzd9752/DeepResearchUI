@@ -16,7 +16,12 @@ class Supervisor:
     4. 超过 token 上下文限制
     """
     
-    def __init__(self, enable_reflection: Optional[bool] = None, llm_caller=None):
+    def __init__(
+        self,
+        enable_reflection: Optional[bool] = None,
+        llm_caller=None,
+        event_callback=None,
+    ):
         """
         初始化监督器
         
@@ -28,7 +33,12 @@ class Supervisor:
             enable_reflection = os.getenv('ENABLE_REFLECTION', '1').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
         self.enable_reflection = enable_reflection
         self.llm_caller = llm_caller
+        self.event_callback = event_callback
         print(f"\n[Supervisor] Reflection mode: {'ENABLED' if self.enable_reflection else 'DISABLED'}\n")
+
+    def emit_event(self, event_type: str, data: Dict) -> None:
+        if self.event_callback:
+            self.event_callback(event_type, data)
     
     def handle_truncated_response(
         self, 
@@ -61,7 +71,14 @@ class Supervisor:
         
         updated_messages = messages.copy()
         updated_messages.append(correction_message)
-        
+
+        self.emit_event("supervisor_event", {
+            "type": "truncated_response",
+            "message": "Response truncated, requesting concise retry",
+            "action": "add_correction_prompt",
+            "resolved": False,
+        })
+
         return True, updated_messages, "Adding correction prompt to request more concise response."
     
     def handle_missing_action(self, messages: List[Dict]) -> Tuple[bool, List[Dict], str]:
@@ -89,6 +106,13 @@ class Supervisor:
                 "<think>your final thinking</think>\n<answer>your answer</answer>"
             )
         
+        self.emit_event("supervisor_event", {
+            "type": "missing_action",
+            "message": "No tool call or final answer detected",
+            "action": "add_missing_action_prompt",
+            "resolved": False,
+        })
+
         return True, updated_messages, "Prompting model to make tool call or provide final answer."
     
     def handle_approaching_limit(
@@ -124,6 +148,13 @@ class Supervisor:
                 "<think>your final thinking</think>\n<answer>your answer</answer>"
             )
         
+        self.emit_event("supervisor_event", {
+            "type": "approaching_limit",
+            "message": f"Calls remaining: {calls_remaining}",
+            "action": "force_final_answer",
+            "resolved": False,
+        })
+
         return False, None, f"Prompting model for final answer (calls remaining: {calls_remaining})."
     
     def handle_approaching_timeout(
@@ -164,6 +195,13 @@ class Supervisor:
                 "<think>your final thinking</think>\n<answer>your answer</answer>"
             )
         
+        self.emit_event("supervisor_event", {
+            "type": "approaching_timeout",
+            "message": f"Elapsed {elapsed_time:.1f}s",
+            "action": "force_final_answer",
+            "resolved": False,
+        })
+
         return False, None, f"Prompting model for final answer (time: {elapsed_time/60:.1f}/{timeout_minutes:.0f} min)."
     
     def handle_token_limit_exceeded(
@@ -198,6 +236,13 @@ class Supervisor:
                 "<think>your final thinking</think>\n<answer>your answer</answer>"
             )
         
+        self.emit_event("supervisor_event", {
+            "type": "token_limit",
+            "message": f"Tokens {token_count}/{max_tokens}",
+            "action": "force_final_answer",
+            "resolved": False,
+        })
+
         return False, None, f"Prompting model for final answer (tokens: {token_count}/{max_tokens})."
     
     def parse_final_response(
@@ -246,6 +291,13 @@ class Supervisor:
         if not self.llm_caller:
             print("[Supervisor] LLM caller not available.")
             return None
+
+        self.emit_event("supervisor_event", {
+            "type": "tool_parsing_error",
+            "message": error_message,
+            "action": "request_correction",
+            "resolved": False,
+        })
         
         # 构建纠错提示，参考 prompt.py 中的格式说明
         correction_prompt = (

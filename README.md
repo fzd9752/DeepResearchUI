@@ -1,105 +1,77 @@
 # Yunque DeepResearch
 
-## Architecture
+感谢[GMI Cloud](https://console.gmicloud.ai/)提供的算力支持
+
+一款**多角色、多轮深度搜索与研究**的 Agent 助理，支持长链路推理、可视化进度追踪、记忆折叠与监督纠错，面向复杂问题的系统化信息收集与报告生成。
+
+## 界面
 
 <p align="center">
-  <img width="90%" src="./assets/framework-2.png">
+  <img width="90%" src="./assets/ui.png">
 </p>
 
-More details can be found in our Tech Report (Coming Soon).
+<p align="center">
+  <img width="90%" src="./assets/ui_progress.png">
+</p>
 
-### Features
+## 快速开始
 
-- **Effective Orchestration**: We introduce an adaptive planning architecture where the Main Agent acts as a central conductor. Utilizing a flexible dispatch mechanism, the planner dynamically routes tasks to the most appropriate resource within the Atomic Capability Pool: it directly invokes basic tools for low-latency atomic operations while delegating complex, long-horizon objectives to specialized sub-agents.
-- **Adaptive Structured Memory**: We propose a **sub-goal-driven memory mechanism** to balance context length with information density. By treating sub-goals as the fundamental unit of trajectory segmentation, our system dynamically partitions the research process. Completed sub-goals are "folded" into concise summaries to maintain global planning awareness, while the active sub-goal retains fine-grained ReAct traces for precise execution. This hybrid approach transforms linear history into structured semantic milestones.
-- **Modularity and Extensibility**: We establish a unified **"Atomic Capability Pool"** that decouples the reasoning core from execution details. By standardizing the interface for both lightweight basic tools (e.g., Search, Read) and complex specialized sub-agents, our architecture supports "plug-and-play" extensibility. This allows the system to seamlessly integrate novel capabilities—ranging from simple APIs to sophisticated domain solvers—adapting to evolving research domains without architectural overhaul.
-- **Stability and Active Supervision**: We incorporate a dedicated **Supervisor module** to ensure system stability and mitigate the fragility often inherent in long-horizon tasks. Unlike rigid reflection schedules, this mechanism performs active anomaly detection on the agent's trajectory. Upon identifying failures, it triggers a self-correction protocol, explicitly pruning invalid context to prevent memory pollution and guiding the agent to autonomously recover and synthesize a viable alternative response.
+本指南包含环境配置、后端 API 启动与 UI 启动方式。
 
-## Quick Start
-
-This guide provides instructions for setting up the environment and running inference scripts located in the [inference](./inference/) folder.
-
-### 1. Environment Setup
+### 1. 环境准备
 
 ```bash
 conda create -n hivemind python=3.10.0
 conda activate hivemind
 pip install -r requirements.txt
+# OR No Cuda
+pip install -r requirements_nocuda.txt
 ```
 
-### 2. Configuration & Data Preparation
+### 2. 配置环境变量
 
-Configure your API keys and settings by copying the example environment file:
+复制示例环境文件：
 
 ```bash
 # Copy the example environment file
 cp .env.example .env
 ```
 
-Edit the `.env` file and provide your actual API keys and configuration values:
+编辑 `.env`，填写必要配置：
 
-- **SERPER_KEY_ID**: Your key from [Serper.dev](https://serper.dev/) (for web search and Google Scholar).
-- **JINA_API_KEYS**: Your key from [Jina.ai](https://jina.ai/) (for web page reading).
-- **API_KEY/API_BASE**: OpenAI-compatible API credentials (for page summarization and LLM).
-- **SANDBOX_FUSION_ENDPOINT**: Python interpreter sandbox endpoints (see [SandboxFusion](https://github.com/bytedance/SandboxFusion)).
-- **LLM_NAME**: The name of the model you wish to use.
-- **DATASET**: Path to your evaluation dataset.
-- **OUTPUT_PATH**: Directory for saving results.
+- **SERPER_KEY_ID**：Serper 搜索服务 Key（用于 Search / Scholar）。
+- **JINA_API_KEYS**：Jina Key（用于网页读取）。
+- **AGENT_API_KEY/AGENT_API_BASE**：OpenAI 兼容 API 的 Key/Base（主模型调用）。
+- **SANDBOX_FUSION_ENDPOINT**：Python 解释器沙箱（可选）。
+- **LLM_MODEL**：调用的模型名（需与服务端一致）。
 
-#### Supported File Formats
-
-The system supports the **JSONL** format. Create your data file (e.g., `my_questions.jsonl`) with the following structure:
-
-```json
-{"question": "What is the capital of France?", "answer": "Paris"}
-{"question": "Explain quantum computing", "answer": ""}
-```
-
-**Note:** The `answer` field contains the **ground truth** used for automatic evaluation. The system generates its own responses, which are then compared against these reference answers.
-
-### 3. Prepare API to call the model
-
-The framework supports any **OpenAI-compatible API** (e.g., OpenAI, DeepSeek, vLLM, SGLang).
-
-1. **Deployment**:
-    - **External Providers**: Get your API Key and Base URL (e.g., `https://api.openai.com/v1`).
-    - **Self-Hosted (vLLM/SGLang)**: Start your inference server.
-        ```bash
-        # Example: Launch vLLM server
-        python -m vllm.entrypoints.openai.api_server \
-          --model /path/to/your/model \
-          --served-model-name my-model \
-          --port 8000
-        ```
-
-2. **Configuration**:
-    Update the `Agent API` section in your `.env` file to match your deployment:
-
-    ```bash
-    # The model name to request (must match the served model name)
-    LLM_MODEL=my-model
-
-    # API Endpoint Configuration
-    AGENT_API_KEY=your_api_key  # Use "EMPTY" for local vLLM/SGLang if no auth
-    AGENT_API_BASE=http://localhost:8000/v1
-    ```
-
-### 4. Run Inference
-
-Execute the inference script using the provided wrapper:
+### 3. 启动后端 API
 
 ```bash
-bash run.sh
+conda activate hivemind
+./api/run.sh
 ```
 
----
+默认监听 `http://127.0.0.1:8000`，可通过 `.env` 的 `API_PORT` 修改端口。
 
-With these steps, you can fully prepare the environment, configure the dataset, and run the model. For more details, consult the inline comments in each script or open an issue.
+### 4. 启动前端 UI
 
-## Acknowledgement
+```bash
+cd ui
+npm install
+npm run dev
+```
 
-We thank the open-source community for their contributions, especially the authors of the following projects:
+浏览器打开 `http://localhost:5173`。
 
-- [Tongyi DeepResearch](https://github.com/Alibaba-NLP/DeepResearch)
-- [browser-use](https://github.com/browser-use/browser-use)
-- [OpenManus](https://github.com/FoundationAgents/OpenManus)
+### 5. （可选）运行评测脚本
+
+如需运行 `inference/` 下的评测脚本：
+
+```bash
+bash inference/run.sh
+```
+
+## 致谢
+
+[Yunque-DeepResearch]https://github.com/Tencent-BAC/Yunque-DeepResearch

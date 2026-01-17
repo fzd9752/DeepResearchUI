@@ -161,3 +161,14 @@ cache/
 models/
 outputs/
 checkpoints/
+
+# Project outputs and dependencies
+output/
+inference/output/
+ui/node_modules/
+
+docs/
+
+.DS_Store
+
+GEMINI.md 

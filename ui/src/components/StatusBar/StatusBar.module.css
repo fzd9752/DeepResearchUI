@@ -1,0 +1,23 @@
+.statusBar {
+  border-top: 1px solid var(--border-default);
+  padding: var(--spacing-sm) 0;
+  margin-top: var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  display: flex;
+  justify-content: space-between;
+}
+
+.left {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.item {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.value {
+  color: var(--text-secondary);
+}
